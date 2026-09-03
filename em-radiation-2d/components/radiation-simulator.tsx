@@ -122,7 +122,7 @@ type ModeDefinition = {
 };
 
 const C = 0.42;
-const PROBE = { x: 0.93, y: 0.48 };
+const DEFAULT_PROBE = { x: 0.93, y: 0.48 };
 
 const MODE_DEFINITIONS: ModeDefinition[] = [
   {
@@ -417,6 +417,8 @@ type CanvasProps = {
   trackEmission: boolean;
   showZoom: boolean;
   showMonitor: boolean;
+  probe: Vec;
+  onProbeChange: (probe: Vec) => void;
   onTelemetry: (telemetry: Telemetry) => void;
 };
 
@@ -568,34 +570,68 @@ function SimulationCanvas(properties: CanvasProps) {
 
     let animationFrame = 0;
     let previous = performance.now();
+    let activeDrag: 'electron' | 'probe' | null = null;
+    let activePointerId: number | null = null;
 
     const screenToWorld = (event: PointerEvent): Vec => {
       const configuration = configurationRef.current;
       const rect = canvas.getBoundingClientRect();
-      const scale = Math.min(rect.width / 3.2, rect.height / 2.25) * configuration.zoom;
+      const scale = Math.max(1e-6, Math.min(rect.width / 3.2, rect.height / 2.25) * configuration.zoom);
       return {
         x: (event.clientX - rect.left - rect.width / 2) / scale,
         y: -(event.clientY - rect.top - rect.height / 2) / scale,
       };
     };
 
-    const onPointerDown = (event: PointerEvent) => {
-      const engine = engineRef.current;
+    const probeFromPointer = (event: PointerEvent): Vec => {
       const configuration = configurationRef.current;
-      if (!engine || event.button !== 0 || configuration.mode !== 'mouse') return;
+      const rect = canvas.getBoundingClientRect();
+      const scale = Math.max(1e-6, Math.min(rect.width / 3.2, rect.height / 2.25) * configuration.zoom);
+      const point = screenToWorld(event);
+      const horizontalLimit = Math.max(0, (rect.width / 2 - 14) / scale);
+      const verticalLimit = Math.max(0, (rect.height / 2 - 14) / scale);
+      return {
+        x: clamp(point.x, -horizontalLimit, horizontalLimit),
+        y: clamp(point.y, -verticalLimit, verticalLimit),
+      };
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      const configuration = configurationRef.current;
+      if (event.button !== 0 || !event.isPrimary) return;
+
+      if (configuration.showMonitor && !(configuration.mode === 'mouse' && event.altKey)) {
+        activeDrag = 'probe';
+        activePointerId = event.pointerId;
+        configuration.onProbeChange(probeFromPointer(event));
+        canvas.setPointerCapture(event.pointerId);
+        return;
+      }
+
+      const engine = engineRef.current;
+      if (!engine || configuration.mode !== 'mouse') return;
+      activeDrag = 'electron';
+      activePointerId = event.pointerId;
       engine.mouse.dragging = true;
       engine.mouse.target = screenToWorld(event);
       canvas.setPointerCapture(event.pointerId);
     };
     const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== activePointerId) return;
+      if (activeDrag === 'probe') {
+        configurationRef.current.onProbeChange(probeFromPointer(event));
+        return;
+      }
       const engine = engineRef.current;
-      if (!engine?.mouse.dragging) return;
+      if (activeDrag !== 'electron' || !engine?.mouse.dragging) return;
       engine.mouse.target = screenToWorld(event);
     };
     const onPointerUp = (event: PointerEvent) => {
+      if (activePointerId !== null && event.pointerId !== activePointerId) return;
       const engine = engineRef.current;
-      if (!engine) return;
-      engine.mouse.dragging = false;
+      if (engine) engine.mouse.dragging = false;
+      activeDrag = null;
+      activePointerId = null;
       if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     };
     const onWheel = (event: WheelEvent) => {
@@ -775,7 +811,7 @@ function SimulationCanvas(properties: CanvasProps) {
       }
 
       if (configuration.showMonitor) {
-        const probe = worldToScreen(PROBE);
+        const probe = worldToScreen(configuration.probe);
         context.strokeStyle = 'rgba(255, 220, 119, 0.86)';
         context.lineWidth = 1;
         context.beginPath();
@@ -861,7 +897,10 @@ function SimulationCanvas(properties: CanvasProps) {
       }
 
       if (now - engine.lastTelemetry > 85) {
-        const relative = { x: PROBE.x - engine.current.position.x, y: PROBE.y - engine.current.position.y };
+        const relative = {
+          x: configuration.probe.x - engine.current.position.x,
+          y: configuration.probe.y - engine.current.position.y,
+        };
         const direction = normalize(relative);
         const signal = radiationValue(direction, engine.current.beta, engine.current.betaDot) *
           Math.sin(engine.time * 3.4 - length(relative) / C);
@@ -968,13 +1007,13 @@ function PowerPattern({ telemetry }: { telemetry: Telemetry }) {
       <div className="power-readout">
         <span>Relative power</span>
         <strong>{telemetry.power < 0.005 ? '≈ 0' : telemetry.power.toExponential(2)}</strong>
-        <Latex className="mini-formula">{String.raw`\frac{dP}{d\Omega}\propto\frac{\left|\mathbf n\times\left[(\mathbf n-\boldsymbol\beta)\times\dot{\boldsymbol\beta}\right]\right|^2}{(1-\mathbf n\cdot\boldsymbol\beta)^5}`}</Latex>
       </div>
+      <Latex display className="pattern-equation">{String.raw`\frac{dP}{d\Omega}\propto\frac{\left|\mathbf n\times\left[(\mathbf n-\boldsymbol\beta)\times\dot{\boldsymbol\beta}\right]\right|^2}{(1-\mathbf n\cdot\boldsymbol\beta)^5}`}</Latex>
     </div>
   );
 }
 
-function MonitorChart({ values }: { values: number[] }) {
+function MonitorChart({ values, probe }: { values: number[]; probe: Vec }) {
   const maximum = Math.max(1, ...values.map((value) => Math.abs(value)));
   const points = values
     .map((value, index) => `${(index / Math.max(1, values.length - 1)) * 260},${54 - (value / maximum) * 42}`)
@@ -986,7 +1025,7 @@ function MonitorChart({ values }: { values: number[] }) {
         <polyline points={points} className="monitor-line" />
       </svg>
       <div className="monitor-caption">
-        <span>Probe at <Latex>{String.raw`(0.93,\,0.48)`}</Latex></span>
+        <span>Probe at <Latex>{String.raw`(${probe.x.toFixed(2)},\,${probe.y.toFixed(2)})`}</Latex> · drag the field to move</span>
         <strong>{(values.at(-1) ?? 0).toFixed(3)}</strong>
       </div>
     </div>
@@ -1021,6 +1060,7 @@ export function RadiationSimulator() {
   const [showZoom, setShowZoom] = useState(false);
   const [showPattern, setShowPattern] = useState(false);
   const [showMonitor, setShowMonitor] = useState(false);
+  const [probe, setProbe] = useState<Vec>({ ...DEFAULT_PROBE });
   const [zoom, setZoom] = useState(1);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -1303,7 +1343,7 @@ export function RadiationSimulator() {
               <span><i className="legend-line field" />Electric field</span>
               <span><i className="legend-line trajectory" />Trajectory</span>
               <span><i className="legend-line wave" />Wavefront</span>
-              <span><i className="legend-source" />Electron</span>
+              <span><i className="legend-dot" />Electron</span>
             </div>
             <div className="view-actions">
               <Button variant={showZoom ? 'secondary' : 'ghost'} size="sm" onClick={() => setShowZoom((value) => !value)} aria-pressed={showZoom}><ScanSearch />Zoom</Button>
@@ -1330,9 +1370,15 @@ export function RadiationSimulator() {
               trackEmission={trackEmission}
               showZoom={showZoom}
               showMonitor={showMonitor}
+              probe={probe}
+              onProbeChange={setProbe}
               onTelemetry={updateTelemetry}
             />
-            {mode === 'mouse' && <div className="interaction-hint"><MousePointer2 />Drag anywhere to steer the electron</div>}
+            {showMonitor ? (
+              <div className="interaction-hint"><Crosshair />{mode === 'mouse' ? 'Drag to move the probe · Alt/Option-drag to steer the electron' : 'Drag anywhere in the field to move the probe'}</div>
+            ) : mode === 'mouse' ? (
+              <div className="interaction-hint"><MousePointer2 />Drag anywhere to steer the electron</div>
+            ) : null}
             <div className="floating-tools">
               {showZoom && <section className="floating-panel zoom-panel">
                 <header><div><span>Zooming view</span><strong>×16 tracking particle</strong></div><button onClick={() => setShowZoom(false)} aria-label="Close zoomed view"><X /></button></header>
@@ -1345,7 +1391,7 @@ export function RadiationSimulator() {
               </section>}
               {showMonitor && <section className="floating-panel monitor-panel">
                 <header><div><span>Field monitor</span><strong>Radiation signal vs. time</strong></div><button onClick={() => setShowMonitor(false)} aria-label="Close field monitor"><X /></button></header>
-                <MonitorChart values={monitorHistory} />
+                <MonitorChart values={monitorHistory} probe={probe} />
               </section>}
             </div>
           </div>
