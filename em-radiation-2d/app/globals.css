@@ -271,7 +271,8 @@
 
 .canvas-topline strong { display: block; margin-top: 3px; font-size: 13px; }
 .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; color: #718b94; font-size: 9px; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .katex { font-size: 1.05em; }
 .legend-line { width: 16px; height: 1px; background: #34c4de; }
 .legend-line.wave { background: #80ecf1; opacity: 0.55; }
 .legend-dot {
@@ -490,6 +491,10 @@ kbd {
   color: #708c86;
   font-size: 8px;
   line-height: 1.4;
+}
+
+.dipole-moment-key small .katex {
+  font-size: 1.1em;
 }
 
 .parameter-section {

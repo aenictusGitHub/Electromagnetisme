@@ -561,66 +561,83 @@ function drawDipoleMoment(
   context: CanvasRenderingContext2D,
   position: Vec,
   worldToScreen: (point: Vec) => Vec,
+  viewport: { width: number; height: number },
 ) {
   const origin = worldToScreen({ x: 0, y: 0 });
-  const electron = worldToScreen(position);
-  const arrowX = origin.x + 17;
-  const start = { x: arrowX, y: electron.y };
-  const end = { x: arrowX, y: origin.y };
+  const start = origin;
+  const uncappedEnd = worldToScreen({ x: -position.x, y: -position.y });
+  const rawDx = uncappedEnd.x - start.x;
+  const rawDy = uncappedEnd.y - start.y;
+  const rawMagnitude = Math.hypot(rawDx, rawDy);
+  const maximumLength = Math.max(24, Math.min(viewport.width, viewport.height) / 2 - 30);
+  const displayedMagnitude = Math.min(rawMagnitude, maximumLength);
+  const scale = rawMagnitude > 1e-9 ? displayedMagnitude / rawMagnitude : 0;
+  const end = {
+    x: start.x + rawDx * scale,
+    y: start.y + rawDy * scale,
+  };
   const dx = end.x - start.x;
   const dy = end.y - start.y;
-  const magnitude = Math.hypot(dx, dy);
   const momentColor = 'rgba(126, 242, 196, 0.94)';
 
   context.save();
-
-  context.fillStyle = 'rgba(255, 199, 92, 0.94)';
-  context.strokeStyle = 'rgba(255, 226, 154, 0.96)';
-  context.lineWidth = 1;
-  context.beginPath();
-  context.arc(origin.x, origin.y, 5.2, 0, Math.PI * 2);
-  context.fill();
-  context.stroke();
-  context.fillStyle = '#402b08';
-  context.font = '700 9px ui-sans-serif, system-ui, sans-serif';
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  context.fillText('+', origin.x, origin.y + 0.3);
-
   context.strokeStyle = momentColor;
   context.fillStyle = momentColor;
   context.lineWidth = 1.8;
-  if (magnitude > 5) {
+  if (rawMagnitude > 0.75) {
     const angle = Math.atan2(dy, dx);
-    const headLength = 7;
-    const headAngle = 0.48;
     context.beginPath();
     context.moveTo(start.x, start.y);
     context.lineTo(end.x, end.y);
     context.stroke();
-    context.beginPath();
-    context.moveTo(end.x, end.y);
-    context.lineTo(
-      end.x - headLength * Math.cos(angle - headAngle),
-      end.y - headLength * Math.sin(angle - headAngle),
-    );
-    context.lineTo(
-      end.x - headLength * Math.cos(angle + headAngle),
-      end.y - headLength * Math.sin(angle + headAngle),
-    );
-    context.closePath();
-    context.fill();
+    if (displayedMagnitude > 6) {
+      const headLength = clamp(displayedMagnitude * 0.28, 3, 8);
+      const headAngle = 0.48;
+      context.beginPath();
+      context.moveTo(end.x, end.y);
+      context.lineTo(
+        end.x - headLength * Math.cos(angle - headAngle),
+        end.y - headLength * Math.sin(angle - headAngle),
+      );
+      context.lineTo(
+        end.x - headLength * Math.cos(angle + headAngle),
+        end.y - headLength * Math.sin(angle + headAngle),
+      );
+      context.closePath();
+      context.fill();
+    }
   } else {
     context.beginPath();
     context.arc(end.x, end.y, 2.2, 0, Math.PI * 2);
     context.fill();
   }
 
-  context.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-  context.textAlign = 'left';
+  context.font = 'italic 400 12px "KaTeX_Math", "Times New Roman", serif';
+  context.textAlign = 'center';
   context.textBaseline = 'middle';
-  const labelY = magnitude > 16 ? (start.y + end.y) / 2 : end.y - 10;
-  context.fillText(magnitude > 5 ? 'p(t)' : 'p(t) = 0', arrowX + 9, labelY);
+  if (rawMagnitude > 0.75) {
+    const unitX = dx / Math.max(displayedMagnitude, 1e-9);
+    const unitY = dy / Math.max(displayedMagnitude, 1e-9);
+    const labelX = clamp((start.x + end.x) / 2 - unitY * 11, 24, viewport.width - 24);
+    const labelY = clamp((start.y + end.y) / 2 + unitX * 11, 16, viewport.height - 16);
+    context.fillText('p(t)', labelX, labelY);
+  } else {
+    context.fillText('p(t) = 0', origin.x + 27, origin.y - 10);
+  }
+
+  context.strokeStyle = 'rgba(255, 199, 92, 0.88)';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.arc(origin.x, origin.y, 3.2, 0, Math.PI * 2);
+  context.moveTo(origin.x - 5.5, origin.y);
+  context.lineTo(origin.x + 5.5, origin.y);
+  context.moveTo(origin.x, origin.y - 5.5);
+  context.lineTo(origin.x, origin.y + 5.5);
+  context.stroke();
+  context.fillStyle = 'rgba(255, 218, 137, 0.92)';
+  context.font = 'italic 400 11px "KaTeX_Math", "Times New Roman", serif';
+  context.textAlign = 'left';
+  context.fillText('O', origin.x + 7, origin.y - 8);
   context.restore();
 }
 
@@ -634,6 +651,7 @@ function SimulationCanvas(properties: CanvasProps) {
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
+    void document.fonts?.load('italic 400 12px "KaTeX_Math"');
 
     let animationFrame = 0;
     let previous = performance.now();
@@ -877,6 +895,8 @@ function SimulationCanvas(properties: CanvasProps) {
         drawTrajectory(context, configuration.mode, configuration.parameters, worldToScreen, engine);
       }
 
+      drawDipoleMoment(context, engine.current.position, worldToScreen, { width, height });
+
       if (configuration.showMonitor) {
         const probe = worldToScreen(configuration.probe);
         context.strokeStyle = 'rgba(255, 220, 119, 0.86)';
@@ -886,10 +906,6 @@ function SimulationCanvas(properties: CanvasProps) {
         context.moveTo(probe.x - 11, probe.y); context.lineTo(probe.x + 11, probe.y);
         context.moveTo(probe.x, probe.y - 11); context.lineTo(probe.x, probe.y + 11);
         context.stroke();
-      }
-
-      if (configuration.mode === 'dipole') {
-        drawDipoleMoment(context, engine.current.position, worldToScreen);
       }
 
       const charge = worldToScreen(engine.current.position);
@@ -1006,9 +1022,7 @@ function SimulationCanvas(properties: CanvasProps) {
       ref={properties.canvasRef}
       className="simulation-canvas"
       role="img"
-      aria-label={properties.mode === 'dipole'
-        ? 'Animated two-dimensional electromagnetic radiation field with the instantaneous dipole moment vector'
-        : 'Animated two-dimensional electromagnetic radiation field'}
+      aria-label="Animated two-dimensional electromagnetic radiation field with the instantaneous dipole moment vector"
     >
       Animated electromagnetic field simulation.
     </canvas>
@@ -1343,11 +1357,11 @@ export function RadiationSimulator() {
             <span className="formula-kicker">{selectedMode.label}</span>
             <Latex display>{selectedMode.formula}</Latex>
             <p>{selectedMode.description}</p>
-            {mode === 'dipole' && <div className="dipole-moment-key">
-              <span>Instantaneous dipole moment</span>
-              <Latex>{String.raw`\mathbf p(t)=-e\,y(t)\,\hat{\mathbf y}`}</Latex>
-              <small>The green arrow points from the electron toward the fixed positive charge.</small>
-            </div>}
+            <div className="dipole-moment-key">
+              <span>Instantaneous dipole moment about O</span>
+              <Latex display>{String.raw`\begin{aligned}\mathbf p_O(t)&=q\,\mathbf r(t)\\&=-e\,\mathbf r(t)\end{aligned}`}</Latex>
+              <small>For this electron, the green vector points opposite <Latex>{String.raw`\mathbf r(t)`}</Latex> and depends on the chosen origin <Latex>{String.raw`O`}</Latex>.</small>
+            </div>
           </div>
           <div className="parameter-section">
             <div className="section-title"><span>Parameters</span><strong>β = {parameters.beta.toFixed(2)}</strong></div>
@@ -1418,7 +1432,7 @@ export function RadiationSimulator() {
               <span><i className="legend-line trajectory" />Trajectory</span>
               <span><i className="legend-line wave" />Wavefront</span>
               <span><i className="legend-dot" />Electron</span>
-              {mode === 'dipole' && <span><i className="legend-line moment" />Dipole moment</span>}
+              <span aria-label="Dipole moment"><i className="legend-line moment" />Dipole moment <Latex>{String.raw`\mathbf p_O(t)`}</Latex></span>
             </div>
             <div className="view-actions">
               <Button variant={showZoom ? 'secondary' : 'ghost'} size="sm" onClick={() => setShowZoom((value) => !value)} aria-pressed={showZoom}><ScanSearch />Zoom</Button>
