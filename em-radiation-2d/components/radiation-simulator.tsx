@@ -557,90 +557,6 @@ function drawTrajectory(
   context.setLineDash([]);
 }
 
-function drawDipoleMomentSecondDerivative(
-  context: CanvasRenderingContext2D,
-  betaDot: Vec,
-  worldToScreen: (point: Vec) => Vec,
-  viewport: { width: number; height: number },
-) {
-  const origin = worldToScreen({ x: 0, y: 0 });
-  const start = origin;
-  const pixelsPerBetaDot = 24;
-  const rawDx = -betaDot.x * pixelsPerBetaDot;
-  const rawDy = betaDot.y * pixelsPerBetaDot;
-  const rawMagnitude = Math.hypot(rawDx, rawDy);
-  const maximumLength = Math.max(24, Math.min(viewport.width, viewport.height) / 2 - 30);
-  const displayedMagnitude = Math.min(rawMagnitude, maximumLength);
-  const scale = rawMagnitude > 1e-9 ? displayedMagnitude / rawMagnitude : 0;
-  const end = {
-    x: start.x + rawDx * scale,
-    y: start.y + rawDy * scale,
-  };
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const momentColor = 'rgba(126, 242, 196, 0.94)';
-
-  context.save();
-  context.strokeStyle = momentColor;
-  context.fillStyle = momentColor;
-  context.lineWidth = 1.8;
-  if (rawMagnitude > 0.75) {
-    const angle = Math.atan2(dy, dx);
-    context.beginPath();
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
-    context.stroke();
-    if (displayedMagnitude > 6) {
-      const headLength = clamp(displayedMagnitude * 0.28, 3, 8);
-      const headAngle = 0.48;
-      context.beginPath();
-      context.moveTo(end.x, end.y);
-      context.lineTo(
-        end.x - headLength * Math.cos(angle - headAngle),
-        end.y - headLength * Math.sin(angle - headAngle),
-      );
-      context.lineTo(
-        end.x - headLength * Math.cos(angle + headAngle),
-        end.y - headLength * Math.sin(angle + headAngle),
-      );
-      context.closePath();
-      context.fill();
-    }
-  } else {
-    context.beginPath();
-    context.arc(end.x, end.y, 2.2, 0, Math.PI * 2);
-    context.fill();
-  }
-
-  context.font = 'italic 400 12px "KaTeX_Math", "Times New Roman", serif';
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  if (rawMagnitude > 0.75) {
-    const unitX = dx / Math.max(displayedMagnitude, 1e-9);
-    const unitY = dy / Math.max(displayedMagnitude, 1e-9);
-    const labelX = clamp((start.x + end.x) / 2 - unitY * 11, 24, viewport.width - 24);
-    const labelY = clamp((start.y + end.y) / 2 + unitX * 11, 16, viewport.height - 16);
-    context.fillText('p\u0308(t)', labelX, labelY);
-  } else {
-    context.fillText('p\u0308(t) = 0', origin.x + 30, origin.y - 10);
-  }
-
-  context.strokeStyle = 'rgba(255, 199, 92, 0.88)';
-  context.lineWidth = 1;
-  context.beginPath();
-  context.arc(origin.x, origin.y, 3.2, 0, Math.PI * 2);
-  context.moveTo(origin.x - 5.5, origin.y);
-  context.lineTo(origin.x + 5.5, origin.y);
-  context.moveTo(origin.x, origin.y - 5.5);
-  context.lineTo(origin.x, origin.y + 5.5);
-  context.stroke();
-  context.fillStyle = 'rgba(255, 218, 137, 0.92)';
-  context.font = 'italic 400 11px "KaTeX_Math", "Times New Roman", serif';
-  context.textAlign = 'left';
-  context.fillText('O', origin.x + 7, origin.y - 8);
-  context.restore();
-}
-
 function SimulationCanvas(properties: CanvasProps) {
   const configurationRef = useRef(properties);
   configurationRef.current = properties;
@@ -651,8 +567,6 @@ function SimulationCanvas(properties: CanvasProps) {
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    void document.fonts?.load('italic 400 12px "KaTeX_Math"');
-
     let animationFrame = 0;
     let previous = performance.now();
     let activeDrag: 'electron' | 'probe' | null = null;
@@ -895,13 +809,6 @@ function SimulationCanvas(properties: CanvasProps) {
         drawTrajectory(context, configuration.mode, configuration.parameters, worldToScreen, engine);
       }
 
-      drawDipoleMomentSecondDerivative(
-        context,
-        engine.current.betaDot,
-        worldToScreen,
-        { width, height },
-      );
-
       if (configuration.showMonitor) {
         const probe = worldToScreen(configuration.probe);
         context.strokeStyle = 'rgba(255, 220, 119, 0.86)';
@@ -1027,7 +934,7 @@ function SimulationCanvas(properties: CanvasProps) {
       ref={properties.canvasRef}
       className="simulation-canvas"
       role="img"
-      aria-label="Animated two-dimensional electromagnetic radiation field with the second time derivative of the dipole moment vector"
+      aria-label="Animated two-dimensional electromagnetic radiation field"
     >
       Animated electromagnetic field simulation.
     </canvas>
@@ -1086,17 +993,43 @@ function PowerPattern({ telemetry }: { telemetry: Telemetry }) {
     return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ') + ' Z';
   }, [telemetry]);
 
+  const betaDotMagnitude = length(telemetry.betaDot);
+  const derivativeVectorLength = Math.min(42, betaDotMagnitude * 18);
+  const derivativeVector = betaDotMagnitude > 1e-4
+    ? {
+        x: 70 - (telemetry.betaDot.x / betaDotMagnitude) * derivativeVectorLength,
+        y: 70 + (telemetry.betaDot.y / betaDotMagnitude) * derivativeVectorLength,
+      }
+    : null;
+
   return (
     <div className="power-layout">
-      <svg viewBox="0 0 140 140" aria-label="Polar radiation power pattern">
+      <svg viewBox="0 0 140 140" aria-label="Polar radiation power pattern with the second time derivative of the dipole moment">
+        <defs>
+          <marker id="dipole-derivative-arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+            <path d="M0,0 L6,3 L0,6 Z" className="dipole-derivative-arrowhead" />
+          </marker>
+        </defs>
         <circle cx="70" cy="70" r="50" className="polar-grid" />
         <circle cx="70" cy="70" r="25" className="polar-grid" />
         <line x1="12" y1="70" x2="128" y2="70" className="polar-axis" />
         <line x1="70" y1="12" x2="70" y2="128" className="polar-axis" />
         <path d={path} className="polar-fill" />
+        {derivativeVector ? (
+          <line
+            x1="70"
+            y1="70"
+            x2={derivativeVector.x}
+            y2={derivativeVector.y}
+            className="dipole-derivative-vector"
+            markerEnd="url(#dipole-derivative-arrowhead)"
+          />
+        ) : (
+          <circle cx="70" cy="70" r="4" className="dipole-derivative-zero" />
+        )}
         <circle cx="70" cy="70" r="2.4" className="polar-source" />
       </svg>
-      <Latex display className="pattern-equation">{String.raw`\begin{aligned}\frac{\mathrm dP}{\mathrm d\Omega}&\propto\frac{\left\lVert\mathbf n\times\mathbf u\right\rVert^2}{\left(1-\mathbf n\cdot\boldsymbol\beta\right)^5},\\[3pt]\mathbf u&=\left(\mathbf n-\boldsymbol\beta\right)\times\dot{\boldsymbol\beta}\end{aligned}`}</Latex>
+      <Latex display className="pattern-equation">{String.raw`\begin{aligned}\frac{\mathrm dP}{\mathrm d\Omega}&\propto\frac{\left\lVert\mathbf n\times\mathbf u\right\rVert^2}{\left(1-\mathbf n\cdot\boldsymbol\beta\right)^5},\\[3pt]\mathbf u&=\left(\mathbf n-\boldsymbol\beta\right)\times\dot{\boldsymbol\beta}\\[7pt]\ddot{\mathbf p}(t)&=q\,\mathbf a(t)=-e\,\mathbf a(t)\\[-1pt]&=-ec\,\dot{\boldsymbol\beta}(t)\end{aligned}`}</Latex>
     </div>
   );
 }
@@ -1362,11 +1295,6 @@ export function RadiationSimulator() {
             <span className="formula-kicker">{selectedMode.label}</span>
             <Latex display>{selectedMode.formula}</Latex>
             <p>{selectedMode.description}</p>
-            <div className="dipole-moment-key">
-              <span>Second time derivative of the dipole moment</span>
-              <Latex display>{String.raw`\begin{aligned}\ddot{\mathbf p}_O(t)&=q\,\mathbf a(t)\\&=-e\,\mathbf a(t)\\&=-ec\,\dot{\boldsymbol\beta}(t)\end{aligned}`}</Latex>
-              <small>For the electron, the green vector points opposite its acceleration. Its displayed length is scaled and capped for readability.</small>
-            </div>
           </div>
           <div className="parameter-section">
             <div className="section-title"><span>Parameters</span><strong>β = {parameters.beta.toFixed(2)}</strong></div>
@@ -1437,7 +1365,6 @@ export function RadiationSimulator() {
               <span><i className="legend-line trajectory" />Trajectory</span>
               <span><i className="legend-line wave" />Wavefront</span>
               <span><i className="legend-dot" />Electron</span>
-              <span aria-label="Second time derivative of the dipole moment"><i className="legend-line moment" />Dipole second derivative <Latex>{String.raw`\ddot{\mathbf p}_O(t)`}</Latex></span>
             </div>
             <div className="view-actions">
               <Button variant={showZoom ? 'secondary' : 'ghost'} size="sm" onClick={() => setShowZoom((value) => !value)} aria-pressed={showZoom}><ScanSearch />Zoom</Button>
