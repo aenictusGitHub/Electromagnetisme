@@ -123,6 +123,16 @@ type ModeDefinition = {
 
 const C = 0.42;
 const DEFAULT_PROBE = { x: 0.93, y: 0.48 };
+const DEFAULT_TELEMETRY_INTERVAL_MS = 85;
+const PATTERN_TELEMETRY_INTERVAL_MS = 30;
+const PATTERN_DIRECTION_COUNT = 144;
+const PATTERN_DIRECTIONS: Vec[] = Array.from(
+  { length: PATTERN_DIRECTION_COUNT },
+  (_, index) => {
+    const angle = (index / PATTERN_DIRECTION_COUNT) * Math.PI * 2;
+    return { x: Math.cos(angle), y: Math.sin(angle) };
+  },
+);
 
 const MODE_DEFINITIONS: ModeDefinition[] = [
   {
@@ -396,6 +406,7 @@ type EngineState = {
   stepKey: number;
   mouse: MouseState;
   current: Kinematics;
+  lastPatternTelemetry: number;
   lastTelemetry: number;
 };
 
@@ -416,9 +427,11 @@ type CanvasProps = {
   lightAberration: boolean;
   trackEmission: boolean;
   showZoom: boolean;
+  showPattern: boolean;
   showMonitor: boolean;
   probe: Vec;
   onProbeChange: (probe: Vec) => void;
+  onPatternTelemetry: (kinematics: Kinematics) => void;
   onTelemetry: (telemetry: Telemetry) => void;
 };
 
@@ -466,6 +479,7 @@ function resetEngine(configuration: CanvasProps): EngineState {
       configuration.mode === 'mouse'
         ? { position: { x: 0, y: 0 }, beta: { x: 0, y: 0 }, betaDot: { x: 0, y: 0 } }
         : sampleTrajectory(configuration.mode, 0, configuration.parameters),
+    lastPatternTelemetry: 0,
     lastTelemetry: 0,
   };
 }
@@ -895,7 +909,15 @@ function SimulationCanvas(properties: CanvasProps) {
         }
       }
 
-      if (now - engine.lastTelemetry > 85) {
+      if (
+        configuration.showPattern &&
+        now - engine.lastPatternTelemetry >= PATTERN_TELEMETRY_INTERVAL_MS
+      ) {
+        configuration.onPatternTelemetry(engine.current);
+        engine.lastPatternTelemetry = now;
+      }
+
+      if (now - engine.lastTelemetry >= DEFAULT_TELEMETRY_INTERVAL_MS) {
         const relative = {
           x: configuration.probe.x - engine.current.position.x,
           y: configuration.probe.y - engine.current.position.y,
@@ -975,32 +997,31 @@ function RangeControl({
   );
 }
 
-function PowerPattern({ telemetry }: { telemetry: Telemetry }) {
-  const path = useMemo(() => {
+function PowerPattern({ kinematics }: { kinematics: Kinematics }) {
+  const { path, derivativeVector } = useMemo(() => {
     const points: Vec[] = [];
-    const values: number[] = [];
-    for (let index = 0; index < 144; index += 1) {
-      const angle = (index / 144) * Math.PI * 2;
-      values.push(radiationValue({ x: Math.cos(angle), y: Math.sin(angle) }, telemetry.beta, telemetry.betaDot));
-    }
+    const values = PATTERN_DIRECTIONS.map((direction) =>
+      radiationValue(direction, kinematics.beta, kinematics.betaDot));
     const maximum = Math.max(...values, 1e-6);
-    for (let index = 0; index <= 144; index += 1) {
-      const angle = (index / 144) * Math.PI * 2;
-      const normalized = values[index % 144] / maximum;
+    for (let index = 0; index <= PATTERN_DIRECTION_COUNT; index += 1) {
+      const direction = PATTERN_DIRECTIONS[index % PATTERN_DIRECTION_COUNT];
+      const normalized = values[index % PATTERN_DIRECTION_COUNT] / maximum;
       const radius = 8 + 49 * Math.sqrt(normalized);
-      points.push({ x: 70 + radius * Math.cos(angle), y: 70 - radius * Math.sin(angle) });
+      points.push({ x: 70 + radius * direction.x, y: 70 - radius * direction.y });
     }
-    return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ') + ' Z';
-  }, [telemetry]);
-
-  const betaDotMagnitude = length(telemetry.betaDot);
-  const derivativeVectorLength = Math.min(42, betaDotMagnitude * 18);
-  const derivativeVector = betaDotMagnitude > 1e-4
-    ? {
-        x: 70 - (telemetry.betaDot.x / betaDotMagnitude) * derivativeVectorLength,
-        y: 70 + (telemetry.betaDot.y / betaDotMagnitude) * derivativeVectorLength,
-      }
-    : null;
+    const nextPath = points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+      .join(' ') + ' Z';
+    const betaDotMagnitude = length(kinematics.betaDot);
+    const derivativeVectorLength = Math.min(42, betaDotMagnitude * 18);
+    const nextDerivativeVector = betaDotMagnitude > 1e-4
+      ? {
+          x: 70 - (kinematics.betaDot.x / betaDotMagnitude) * derivativeVectorLength,
+          y: 70 + (kinematics.betaDot.y / betaDotMagnitude) * derivativeVectorLength,
+        }
+      : null;
+    return { path: nextPath, derivativeVector: nextDerivativeVector };
+  }, [kinematics.beta.x, kinematics.beta.y, kinematics.betaDot.x, kinematics.betaDot.y]);
 
   return (
     <div className="power-layout">
@@ -1096,6 +1117,11 @@ export function RadiationSimulator() {
     speed: 0,
     power: 0,
     signal: 0,
+  });
+  const [patternKinematics, setPatternKinematics] = useState<Kinematics>({
+    position: { x: 0, y: 0 },
+    beta: { x: 0, y: 0 },
+    betaDot: { x: 0, y: 0 },
   });
   const [monitorHistory, setMonitorHistory] = useState<number[]>(Array(100).fill(0));
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1390,9 +1416,11 @@ export function RadiationSimulator() {
               lightAberration={lightAberration}
               trackEmission={trackEmission}
               showZoom={showZoom}
+              showPattern={showPattern}
               showMonitor={showMonitor}
               probe={probe}
               onProbeChange={setProbe}
+              onPatternTelemetry={setPatternKinematics}
               onTelemetry={updateTelemetry}
             />
             {showMonitor ? (
@@ -1408,7 +1436,7 @@ export function RadiationSimulator() {
               </section>}
               {showPattern && <section className="floating-panel pattern-panel">
                 <header><div><span>Radiation power pattern</span><strong>Instantaneous angular distribution</strong></div><button onClick={() => setShowPattern(false)} aria-label="Close power pattern"><X /></button></header>
-                <PowerPattern telemetry={telemetry} />
+                <PowerPattern kinematics={patternKinematics} />
               </section>}
               {showMonitor && <section className="floating-panel monitor-panel">
                 <header><div><span>Field monitor</span><strong>Radiation signal vs. time</strong></div><button onClick={() => setShowMonitor(false)} aria-label="Close field monitor"><X /></button></header>

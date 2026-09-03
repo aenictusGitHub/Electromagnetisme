@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import katex from 'katex';
 
 export function Latex({
@@ -11,12 +12,15 @@ export function Latex({
   display?: boolean;
   className?: string;
 }) {
-  const html = katex.renderToString(children, {
-    displayMode: display,
-    throwOnError: false,
-    strict: false,
-    output: 'htmlAndMathml',
-  });
+  const html = useMemo(
+    () => katex.renderToString(children, {
+      displayMode: display,
+      throwOnError: false,
+      strict: false,
+      output: 'htmlAndMathml',
+    }),
+    [children, display],
+  );
 
   return (
     <span
