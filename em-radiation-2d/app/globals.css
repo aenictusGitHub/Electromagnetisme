@@ -844,12 +844,6 @@ kbd {
   fill: #7ef2c4;
 }
 
-.dipole-derivative-zero {
-  fill: none;
-  stroke: #7ef2c4;
-  stroke-width: 1.4;
-}
-
 .pattern-equation {
   display: block;
   width: 100%;

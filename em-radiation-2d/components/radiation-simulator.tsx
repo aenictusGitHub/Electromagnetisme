@@ -124,8 +124,10 @@ type ModeDefinition = {
 const C = 0.42;
 const DEFAULT_PROBE = { x: 0.93, y: 0.48 };
 const DEFAULT_TELEMETRY_INTERVAL_MS = 85;
-const PATTERN_TELEMETRY_INTERVAL_MS = 30;
+const PATTERN_TELEMETRY_INTERVAL_MS = 16;
 const PATTERN_DIRECTION_COUNT = 144;
+const DIPOLE_DERIVATIVE_PIXELS_PER_BETA_DOT = 5;
+const DIPOLE_DERIVATIVE_MAX_LENGTH = 42;
 const PATTERN_DIRECTIONS: Vec[] = Array.from(
   { length: PATTERN_DIRECTION_COUNT },
   (_, index) => {
@@ -337,6 +339,16 @@ function positionAt(mode: Trajectory, time: number, parameters: Parameters): Vec
 }
 
 function sampleTrajectory(mode: Trajectory, time: number, parameters: Parameters): Kinematics {
+  if (mode === 'dipole') {
+    const amplitude = Math.max(parameters.amplitude / 2, 0.025);
+    const omega = (parameters.beta * C) / amplitude;
+    return {
+      position: { x: 0, y: amplitude * Math.sin(omega * time) },
+      beta: { x: 0, y: parameters.beta * Math.cos(omega * time) },
+      betaDot: { x: 0, y: -parameters.beta * omega * Math.sin(omega * time) },
+    };
+  }
+
   const epsilon = 0.0025;
   const position = positionAt(mode, time, parameters);
   const before = positionAt(mode, time - epsilon, parameters);
@@ -1013,12 +1025,32 @@ function PowerPattern({ kinematics }: { kinematics: Kinematics }) {
       .map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
       .join(' ') + ' Z';
     const betaDotMagnitude = length(kinematics.betaDot);
-    const derivativeVectorLength = Math.min(42, betaDotMagnitude * 18);
+    const derivativeVectorLength = Math.min(
+      DIPOLE_DERIVATIVE_MAX_LENGTH,
+      betaDotMagnitude * DIPOLE_DERIVATIVE_PIXELS_PER_BETA_DOT,
+    );
     const nextDerivativeVector = betaDotMagnitude > 1e-4
-      ? {
-          x: 70 - (kinematics.betaDot.x / betaDotMagnitude) * derivativeVectorLength,
-          y: 70 + (kinematics.betaDot.y / betaDotMagnitude) * derivativeVectorLength,
-        }
+      ? (() => {
+          const unitX = -kinematics.betaDot.x / betaDotMagnitude;
+          const unitY = kinematics.betaDot.y / betaDotMagnitude;
+          const x = 70 + unitX * derivativeVectorLength;
+          const y = 70 + unitY * derivativeVectorLength;
+          const headLength = Math.min(5, derivativeVectorLength * 0.28);
+          const headHalfWidth = headLength * 0.62;
+          const baseX = x - unitX * headLength;
+          const baseY = y - unitY * headLength;
+          const normalX = -unitY;
+          const normalY = unitX;
+          return {
+            x,
+            y,
+            arrowhead: [
+              `${x},${y}`,
+              `${baseX + normalX * headHalfWidth},${baseY + normalY * headHalfWidth}`,
+              `${baseX - normalX * headHalfWidth},${baseY - normalY * headHalfWidth}`,
+            ].join(' '),
+          };
+        })()
       : null;
     return { path: nextPath, derivativeVector: nextDerivativeVector };
   }, [kinematics.beta.x, kinematics.beta.y, kinematics.betaDot.x, kinematics.betaDot.y]);
@@ -1026,28 +1058,23 @@ function PowerPattern({ kinematics }: { kinematics: Kinematics }) {
   return (
     <div className="power-layout">
       <svg viewBox="0 0 140 140" aria-label="Polar radiation power pattern with the second time derivative of the dipole moment">
-        <defs>
-          <marker id="dipole-derivative-arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
-            <path d="M0,0 L6,3 L0,6 Z" className="dipole-derivative-arrowhead" />
-          </marker>
-        </defs>
         <circle cx="70" cy="70" r="50" className="polar-grid" />
         <circle cx="70" cy="70" r="25" className="polar-grid" />
         <line x1="12" y1="70" x2="128" y2="70" className="polar-axis" />
         <line x1="70" y1="12" x2="70" y2="128" className="polar-axis" />
         <path d={path} className="polar-fill" />
         {derivativeVector ? (
-          <line
-            x1="70"
-            y1="70"
-            x2={derivativeVector.x}
-            y2={derivativeVector.y}
-            className="dipole-derivative-vector"
-            markerEnd="url(#dipole-derivative-arrowhead)"
-          />
-        ) : (
-          <circle cx="70" cy="70" r="4" className="dipole-derivative-zero" />
-        )}
+          <>
+            <line
+              x1="70"
+              y1="70"
+              x2={derivativeVector.x}
+              y2={derivativeVector.y}
+              className="dipole-derivative-vector"
+            />
+            <polygon points={derivativeVector.arrowhead} className="dipole-derivative-arrowhead" />
+          </>
+        ) : null}
         <circle cx="70" cy="70" r="2.4" className="polar-source" />
       </svg>
       <Latex display className="pattern-equation">{String.raw`\begin{aligned}\frac{\mathrm dP}{\mathrm d\Omega}&\propto\frac{\left\lVert\mathbf n\times\mathbf u\right\rVert^2}{\left(1-\mathbf n\cdot\boldsymbol\beta\right)^5},\\[3pt]\mathbf u&=\left(\mathbf n-\boldsymbol\beta\right)\times\dot{\boldsymbol\beta}\\[7pt]\ddot{\mathbf p}(t)&=q\,\mathbf a(t)=-e\,\mathbf a(t)\\[-1pt]&=-ec\,\dot{\boldsymbol\beta}(t)\end{aligned}`}</Latex>
