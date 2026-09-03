@@ -557,17 +557,17 @@ function drawTrajectory(
   context.setLineDash([]);
 }
 
-function drawDipoleMoment(
+function drawDipoleMomentSecondDerivative(
   context: CanvasRenderingContext2D,
-  position: Vec,
+  betaDot: Vec,
   worldToScreen: (point: Vec) => Vec,
   viewport: { width: number; height: number },
 ) {
   const origin = worldToScreen({ x: 0, y: 0 });
   const start = origin;
-  const uncappedEnd = worldToScreen({ x: -position.x, y: -position.y });
-  const rawDx = uncappedEnd.x - start.x;
-  const rawDy = uncappedEnd.y - start.y;
+  const pixelsPerBetaDot = 24;
+  const rawDx = -betaDot.x * pixelsPerBetaDot;
+  const rawDy = betaDot.y * pixelsPerBetaDot;
   const rawMagnitude = Math.hypot(rawDx, rawDy);
   const maximumLength = Math.max(24, Math.min(viewport.width, viewport.height) / 2 - 30);
   const displayedMagnitude = Math.min(rawMagnitude, maximumLength);
@@ -620,9 +620,9 @@ function drawDipoleMoment(
     const unitY = dy / Math.max(displayedMagnitude, 1e-9);
     const labelX = clamp((start.x + end.x) / 2 - unitY * 11, 24, viewport.width - 24);
     const labelY = clamp((start.y + end.y) / 2 + unitX * 11, 16, viewport.height - 16);
-    context.fillText('p(t)', labelX, labelY);
+    context.fillText('p\u0308(t)', labelX, labelY);
   } else {
-    context.fillText('p(t) = 0', origin.x + 27, origin.y - 10);
+    context.fillText('p\u0308(t) = 0', origin.x + 30, origin.y - 10);
   }
 
   context.strokeStyle = 'rgba(255, 199, 92, 0.88)';
@@ -895,7 +895,12 @@ function SimulationCanvas(properties: CanvasProps) {
         drawTrajectory(context, configuration.mode, configuration.parameters, worldToScreen, engine);
       }
 
-      drawDipoleMoment(context, engine.current.position, worldToScreen, { width, height });
+      drawDipoleMomentSecondDerivative(
+        context,
+        engine.current.betaDot,
+        worldToScreen,
+        { width, height },
+      );
 
       if (configuration.showMonitor) {
         const probe = worldToScreen(configuration.probe);
@@ -1022,7 +1027,7 @@ function SimulationCanvas(properties: CanvasProps) {
       ref={properties.canvasRef}
       className="simulation-canvas"
       role="img"
-      aria-label="Animated two-dimensional electromagnetic radiation field with the instantaneous dipole moment vector"
+      aria-label="Animated two-dimensional electromagnetic radiation field with the second time derivative of the dipole moment vector"
     >
       Animated electromagnetic field simulation.
     </canvas>
@@ -1358,9 +1363,9 @@ export function RadiationSimulator() {
             <Latex display>{selectedMode.formula}</Latex>
             <p>{selectedMode.description}</p>
             <div className="dipole-moment-key">
-              <span>Instantaneous dipole moment about O</span>
-              <Latex display>{String.raw`\begin{aligned}\mathbf p_O(t)&=q\,\mathbf r(t)\\&=-e\,\mathbf r(t)\end{aligned}`}</Latex>
-              <small>For this electron, the green vector points opposite <Latex>{String.raw`\mathbf r(t)`}</Latex> and depends on the chosen origin <Latex>{String.raw`O`}</Latex>.</small>
+              <span>Second time derivative of the dipole moment</span>
+              <Latex display>{String.raw`\begin{aligned}\ddot{\mathbf p}_O(t)&=q\,\mathbf a(t)\\&=-e\,\mathbf a(t)\\&=-ec\,\dot{\boldsymbol\beta}(t)\end{aligned}`}</Latex>
+              <small>For the electron, the green vector points opposite its acceleration. Its displayed length is scaled and capped for readability.</small>
             </div>
           </div>
           <div className="parameter-section">
@@ -1432,7 +1437,7 @@ export function RadiationSimulator() {
               <span><i className="legend-line trajectory" />Trajectory</span>
               <span><i className="legend-line wave" />Wavefront</span>
               <span><i className="legend-dot" />Electron</span>
-              <span aria-label="Dipole moment"><i className="legend-line moment" />Dipole moment <Latex>{String.raw`\mathbf p_O(t)`}</Latex></span>
+              <span aria-label="Second time derivative of the dipole moment"><i className="legend-line moment" />Dipole second derivative <Latex>{String.raw`\ddot{\mathbf p}_O(t)`}</Latex></span>
             </div>
             <div className="view-actions">
               <Button variant={showZoom ? 'secondary' : 'ghost'} size="sm" onClick={() => setShowZoom((value) => !value)} aria-pressed={showZoom}><ScanSearch />Zoom</Button>
