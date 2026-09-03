@@ -3,7 +3,7 @@
 Interactive two-dimensional electromagnetic-radiation simulator for the
 `Electromagnetisme` course repository.
 
-[Open the hosted simulator](https://radiation-2d-simulator.jmartin741572.chatgpt.site)
+[Open the hosted simulator](https://aenictusgithub.github.io/Electromagnetisme/)
 
 ## Run locally
 

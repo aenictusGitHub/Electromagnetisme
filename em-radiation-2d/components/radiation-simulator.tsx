@@ -1241,10 +1241,10 @@ export function RadiationSimulator() {
 
       <section className="control-strip" aria-label="Playback controls">
         <Button size="lg" className="run-button" onClick={() => setRunning(true)} disabled={running}>
-          <img src="/original-run.png" alt="" className="original-glyph" />Run
+          <img src="original-run.png" alt="" className="original-glyph" />Run
         </Button>
         <Button size="lg" variant="outline" className="toolbar-button" onClick={() => running ? setRunning(false) : setStepKey((value) => value + 1)} title={running ? 'Pause simulation' : 'Advance one step'}>
-          <img src="/original-pause.png" alt="" className="original-glyph" />{running ? 'Pause' : 'Step'}
+          <img src="original-pause.png" alt="" className="original-glyph" />{running ? 'Pause' : 'Step'}
         </Button>
         <Button size="lg" variant="ghost" className="toolbar-button" onClick={reset}><RotateCcw />Reset</Button>
         <div className="strip-divider" />
