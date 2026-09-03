@@ -122,6 +122,8 @@ type ModeDefinition = {
 };
 
 const C = 0.42;
+const MIN_PARTICLE_BETA = 0;
+const MAX_PARTICLE_BETA = 0.99;
 const DEFAULT_PROBE = { x: 0.93, y: 0.48 };
 const DEFAULT_TELEMETRY_INTERVAL_MS = 85;
 const PATTERN_TELEMETRY_INTERVAL_MS = 16;
@@ -144,7 +146,7 @@ const MODE_DEFINITIONS: ModeDefinition[] = [
     icon: MousePointer2,
     description: 'Drag the electron. Its speed stays below the wave speed.',
     formula: String.raw`\lVert\boldsymbol{\beta}\rVert=\frac{v}{c}<1`,
-    beta: 0.99,
+    beta: MAX_PARTICLE_BETA,
   },
   {
     id: 'line',
@@ -219,7 +221,7 @@ const FIELD_LINE_QUALITY: Record<LineQuality, { lines: number; label: string }> 
 };
 
 const MODE_PARAMETER_DEFAULTS: Record<Trajectory, Partial<Parameters>> = {
-  mouse: { beta: 0.99 },
+  mouse: { beta: MAX_PARTICLE_BETA },
   line: { beta: 0.8, lineStart: -0.5, lineStop: 0.5 },
   dipole: { beta: 0.9, amplitude: 0.1 },
   circle: { beta: 0.9, radius: 0.2 },
@@ -303,7 +305,7 @@ function positionAt(mode: Trajectory, time: number, parameters: Parameters): Vec
       const total = period * parameters.periods;
       const amplitude = Math.min(0.12, 0.035 * parameters.k);
       const slope = (2 * Math.PI * amplitude) / period;
-      const longitudinalSpeed = betaC / Math.sqrt(1 + (slope * slope) / 2);
+      const longitudinalSpeed = betaC / Math.sqrt(1 + slope * slope);
       const distance = clamp(Math.max(0, time) * longitudinalSpeed, 0, total);
       return {
         x: -total / 2 + distance,
@@ -358,8 +360,11 @@ function sampleTrajectory(mode: Trajectory, time: number, parameters: Parameters
     y: (after.y - before.y) / (2 * epsilon * C),
   };
   const betaMagnitude = length(beta);
-  if (betaMagnitude > 0.995) {
-    beta = { x: (beta.x * 0.995) / betaMagnitude, y: (beta.y * 0.995) / betaMagnitude };
+  if (betaMagnitude > MAX_PARTICLE_BETA) {
+    beta = {
+      x: (beta.x * MAX_PARTICLE_BETA) / betaMagnitude,
+      y: (beta.y * MAX_PARTICLE_BETA) / betaMagnitude,
+    };
   }
   return {
     position,
@@ -374,7 +379,7 @@ function sampleTrajectory(mode: Trajectory, time: number, parameters: Parameters
 function aberratedDirection(angle: number, beta: Vec, enabled: boolean): Vec {
   const rest = { x: Math.cos(angle), y: Math.sin(angle) };
   if (!enabled) return rest;
-  const speed = Math.min(length(beta), 0.995);
+  const speed = Math.min(length(beta), MAX_PARTICLE_BETA);
   if (speed < 1e-6) return rest;
   const direction = { x: beta.x / speed, y: beta.y / speed };
   const mu = rest.x * direction.x + rest.y * direction.y;
@@ -393,7 +398,7 @@ function aberratedDirection(angle: number, beta: Vec, enabled: boolean): Vec {
 }
 
 function radiationValue(direction: Vec, beta: Vec, betaDot: Vec) {
-  const kappa = Math.max(0.025, 1 - direction.x * beta.x - direction.y * beta.y);
+  const kappa = Math.max(1e-6, 1 - direction.x * beta.x - direction.y * beta.y);
   const projection = direction.x * betaDot.x + direction.y * betaDot.y;
   const vector = {
     x: (direction.x - beta.x) * projection - betaDot.x * kappa,
@@ -561,19 +566,22 @@ function drawTrajectory(
   if (mode === 'mouse') {
     for (let index = 0; index < engine.rows.length; index += 3) addPoint(engine.rows[index].origin);
   } else {
+    const traceParameters = parameters.beta > MIN_PARTICLE_BETA
+      ? parameters
+      : { ...parameters, beta: MAX_PARTICLE_BETA };
     let start = -1;
     let end = 8;
-    if (mode === 'circle') end = (Math.PI * 2 * parameters.radius) / (parameters.beta * C);
+    if (mode === 'circle') end = (Math.PI * 2 * traceParameters.radius) / (traceParameters.beta * C);
     if (mode === 'racetrack') {
-      end = (2 * parameters.straight + 2 * Math.PI * parameters.radius) / (parameters.beta * C);
+      end = (2 * traceParameters.straight + 2 * Math.PI * traceParameters.radius) / (traceParameters.beta * C);
       start = 0;
     }
     if (mode === 'dipole') {
-      end = (Math.PI * 2 * Math.max(parameters.amplitude / 2, 0.025)) / (parameters.beta * C);
+      end = (Math.PI * 2 * Math.max(traceParameters.amplitude / 2, 0.025)) / (traceParameters.beta * C);
       start = 0;
     }
     for (let sample = 0; sample <= 180; sample += 1) {
-      addPoint(positionAt(mode, start + ((end - start) * sample) / 180, parameters));
+      addPoint(positionAt(mode, start + ((end - start) * sample) / 180, traceParameters));
     }
   }
   context.strokeStyle = 'rgba(230, 230, 0, 0.68)';
@@ -1014,11 +1022,13 @@ function PowerPattern({ kinematics }: { kinematics: Kinematics }) {
     const points: Vec[] = [];
     const values = PATTERN_DIRECTIONS.map((direction) =>
       radiationValue(direction, kinematics.beta, kinematics.betaDot));
-    const maximum = Math.max(...values, 1e-6);
+    const maximum = Math.max(...values);
+    const hasRadiation = maximum > 1e-12;
+    const normalization = Math.max(maximum, 1e-12);
     for (let index = 0; index <= PATTERN_DIRECTION_COUNT; index += 1) {
       const direction = PATTERN_DIRECTIONS[index % PATTERN_DIRECTION_COUNT];
-      const normalized = values[index % PATTERN_DIRECTION_COUNT] / maximum;
-      const radius = 8 + 49 * Math.sqrt(normalized);
+      const normalized = values[index % PATTERN_DIRECTION_COUNT] / normalization;
+      const radius = hasRadiation ? 8 + 49 * Math.sqrt(normalized) : 0;
       points.push({ x: 70 + radius * direction.x, y: 70 - radius * direction.y });
     }
     const nextPath = points
@@ -1113,7 +1123,7 @@ function LayerToggle({ label, checked, onCheckedChange }: { label: string; check
 export function RadiationSimulator() {
   const [running, setRunning] = useState(true);
   const [mode, setMode] = useState<Trajectory>('mouse');
-  const [parameters, setParameters] = useState<Parameters>({ ...INITIAL_PARAMETERS, beta: 0.99 });
+  const [parameters, setParameters] = useState<Parameters>({ ...INITIAL_PARAMETERS, beta: MAX_PARTICLE_BETA });
   const [samplingQuality, setSamplingQuality] = useState<SamplingQuality>('medium');
   const [lineQuality, setLineQuality] = useState<LineQuality>('medium');
   const [waveSpeed, setWaveSpeed] = useState(1);
@@ -1218,11 +1228,12 @@ export function RadiationSimulator() {
           {
             name: 'configure_radiation_simulator',
             title: 'Configure EM radiation 2D',
-            description: 'Set the electron trajectory, playback state, wave speed, and visible field layers in the simulator.',
+            description: 'Set the electron trajectory, particle velocity, playback state, wave speed, and visible field layers in the simulator.',
             inputSchema: {
               type: 'object',
               properties: {
                 trajectory: { type: 'string', enum: modes },
+                beta: { type: 'number', minimum: MIN_PARTICLE_BETA, maximum: MAX_PARTICLE_BETA },
                 playback: { type: 'string', enum: ['run', 'pause', 'step'] },
                 waveSpeed: { type: 'number', minimum: 0.25, maximum: 2 },
                 fieldLines: { type: 'boolean' },
@@ -1238,6 +1249,12 @@ export function RadiationSimulator() {
               if (value.trajectory !== undefined) {
                 if (typeof value.trajectory !== 'string' || !modes.includes(value.trajectory as Trajectory)) throw new Error('Unknown trajectory.');
                 chooseMode(value.trajectory as Trajectory);
+              }
+              if (value.beta !== undefined) {
+                if (typeof value.beta !== 'number' || !Number.isFinite(value.beta) || value.beta < MIN_PARTICLE_BETA || value.beta > MAX_PARTICLE_BETA) {
+                  throw new Error('beta must be between 0 and 0.99.');
+                }
+                setParameters((current) => ({ ...current, beta: value.beta as number }));
               }
               if (value.waveSpeed !== undefined) {
                 if (typeof value.waveSpeed !== 'number' || value.waveSpeed < 0.25 || value.waveSpeed > 2) throw new Error('waveSpeed must be between 0.25 and 2.');
@@ -1351,7 +1368,15 @@ export function RadiationSimulator() {
           </div>
           <div className="parameter-section">
             <div className="section-title"><span>Parameters</span><strong>β = {parameters.beta.toFixed(2)}</strong></div>
-            <RangeControl label={mode === 'mouse' || mode === 'dipole' ? 'Maximum velocity' : 'Particle velocity'} value={parameters.beta} min={0.5} max={0.99} step={0.01} onChange={(value) => setParameter('beta', value)} />
+            <RangeControl
+              label={mode === 'mouse' || mode === 'dipole' ? 'Maximum velocity' : 'Particle velocity'}
+              value={parameters.beta}
+              min={MIN_PARTICLE_BETA}
+              max={MAX_PARTICLE_BETA}
+              step={0.01}
+              unit=" c"
+              onChange={(value) => setParameter('beta', value)}
+            />
             {mode === 'line' && <>
               <RangeControl label="Start position" value={parameters.lineStart} min={-1.2} max={-0.1} step={0.1} unit=" m" onChange={(value) => setParameter('lineStart', Math.min(value, parameters.lineStop - 0.1))} />
               <RangeControl label="Stop position" value={parameters.lineStop} min={0.1} max={1.2} step={0.1} unit=" m" onChange={(value) => setParameter('lineStop', Math.max(value, parameters.lineStart + 0.1))} />
