@@ -451,9 +451,11 @@ kbd {
 
 .formula-card .katex-display {
   margin: 0.35em 0 0.7em;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   color: #eefafb;
   font-size: 0.72em;
+  scrollbar-width: thin;
 }
 
 .formula-card p {
@@ -461,6 +463,33 @@ kbd {
   color: #78929a;
   font-size: 10px;
   line-height: 1.5;
+}
+
+.dipole-moment-key {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(126, 242, 196, 0.14);
+}
+
+.dipole-moment-key > span {
+  color: #7ef2c4;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dipole-moment-key .katex {
+  color: #dff9ef;
+  font-size: 0.92em;
+}
+
+.dipole-moment-key small {
+  color: #708c86;
+  font-size: 8px;
+  line-height: 1.4;
 }
 
 .parameter-section {
@@ -643,6 +672,12 @@ kbd {
   opacity: 0.72;
 }
 
+.legend-line.moment {
+  height: 2px;
+  background: #7ef2c4;
+  box-shadow: 0 0 6px rgba(126, 242, 196, 0.4);
+}
+
 .canvas-wrap {
   position: relative;
   min-height: 360px;
@@ -802,15 +837,17 @@ kbd {
 
 .power-layout {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 10px 14px;
-  padding: 12px 16px 16px;
+  justify-items: center;
+  gap: 14px;
+  padding: 14px 18px 18px;
 }
 
 .power-layout svg {
-  width: 164px;
-  height: 164px;
+  width: min(196px, 64vw);
+  height: auto;
+  aspect-ratio: 1;
 }
 
 .polar-grid,
@@ -830,48 +867,25 @@ kbd {
   fill: #ff5a78;
 }
 
-.power-readout {
-  min-width: 0;
-}
-
-.power-readout > span,
-.power-readout > strong {
-  display: block;
-}
-
-.power-readout > span {
-  color: #627e87;
-  font-size: 8px;
-  text-transform: uppercase;
-}
-
-.power-readout > strong {
-  margin: 6px 0 0;
-  color: #effafb;
-  font-family: var(--font-mono-ui);
-  font-size: 22px;
-  font-weight: 500;
-}
-
 .pattern-equation {
   display: block;
-  grid-column: 1 / -1;
+  width: 100%;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 9px 10px;
+  padding: 11px 12px;
   border: 1px solid rgba(106, 158, 171, 0.12);
   border-radius: 7px;
   background: rgba(3, 11, 16, 0.42);
   color: #849ea6;
-  font-size: 0.72em;
+  font-size: 0.82em;
   line-height: 1.35;
+  text-align: center;
   scrollbar-width: thin;
 }
 
 .pattern-equation .katex-display {
   margin: 0;
-  white-space: nowrap;
 }
 
 .monitor-chart {
@@ -1147,18 +1161,17 @@ kbd {
   }
 
   .power-layout {
-    grid-template-columns: 132px minmax(0, 1fr);
-    gap: 8px;
-    padding: 8px 10px 11px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 12px 13px;
   }
 
   .power-layout svg {
-    width: 128px;
-    height: 128px;
+    width: min(160px, 60vw);
   }
 
   .pattern-equation {
-    font-size: 0.55em;
+    font-size: 0.72em;
   }
 
   .monitor-chart svg {

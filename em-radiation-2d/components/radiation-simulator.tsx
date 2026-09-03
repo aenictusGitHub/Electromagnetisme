@@ -149,7 +149,7 @@ const MODE_DEFINITIONS: ModeDefinition[] = [
     menuLabel: 'Dipole Oscillation',
     icon: Activity,
     description: 'Sinusoidal motion creates the familiar two-lobed dipole pattern.',
-    formula: String.raw`y(t)=A\sin(\omega t),\qquad \omega=\frac{\beta_{\max}c}{A}`,
+    formula: String.raw`\begin{aligned}y(t)&=A\sin(\omega t),\\[2pt]\omega&=\frac{\beta_{\max}c}{A}\end{aligned}`,
     beta: 0.9,
   },
   {
@@ -557,6 +557,73 @@ function drawTrajectory(
   context.setLineDash([]);
 }
 
+function drawDipoleMoment(
+  context: CanvasRenderingContext2D,
+  position: Vec,
+  worldToScreen: (point: Vec) => Vec,
+) {
+  const origin = worldToScreen({ x: 0, y: 0 });
+  const electron = worldToScreen(position);
+  const arrowX = origin.x + 17;
+  const start = { x: arrowX, y: electron.y };
+  const end = { x: arrowX, y: origin.y };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const magnitude = Math.hypot(dx, dy);
+  const momentColor = 'rgba(126, 242, 196, 0.94)';
+
+  context.save();
+
+  context.fillStyle = 'rgba(255, 199, 92, 0.94)';
+  context.strokeStyle = 'rgba(255, 226, 154, 0.96)';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.arc(origin.x, origin.y, 5.2, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.fillStyle = '#402b08';
+  context.font = '700 9px ui-sans-serif, system-ui, sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText('+', origin.x, origin.y + 0.3);
+
+  context.strokeStyle = momentColor;
+  context.fillStyle = momentColor;
+  context.lineWidth = 1.8;
+  if (magnitude > 5) {
+    const angle = Math.atan2(dy, dx);
+    const headLength = 7;
+    const headAngle = 0.48;
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(end.x, end.y);
+    context.lineTo(
+      end.x - headLength * Math.cos(angle - headAngle),
+      end.y - headLength * Math.sin(angle - headAngle),
+    );
+    context.lineTo(
+      end.x - headLength * Math.cos(angle + headAngle),
+      end.y - headLength * Math.sin(angle + headAngle),
+    );
+    context.closePath();
+    context.fill();
+  } else {
+    context.beginPath();
+    context.arc(end.x, end.y, 2.2, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+  context.textAlign = 'left';
+  context.textBaseline = 'middle';
+  const labelY = magnitude > 16 ? (start.y + end.y) / 2 : end.y - 10;
+  context.fillText(magnitude > 5 ? 'p(t)' : 'p(t) = 0', arrowX + 9, labelY);
+  context.restore();
+}
+
 function SimulationCanvas(properties: CanvasProps) {
   const configurationRef = useRef(properties);
   configurationRef.current = properties;
@@ -821,6 +888,10 @@ function SimulationCanvas(properties: CanvasProps) {
         context.stroke();
       }
 
+      if (configuration.mode === 'dipole') {
+        drawDipoleMoment(context, engine.current.position, worldToScreen);
+      }
+
       const charge = worldToScreen(engine.current.position);
       const glow = context.createRadialGradient(charge.x, charge.y, 0, charge.x, charge.y, 28);
       glow.addColorStop(0, 'rgba(255, 170, 104, 0.72)');
@@ -935,7 +1006,9 @@ function SimulationCanvas(properties: CanvasProps) {
       ref={properties.canvasRef}
       className="simulation-canvas"
       role="img"
-      aria-label="Animated two-dimensional electromagnetic radiation field"
+      aria-label={properties.mode === 'dipole'
+        ? 'Animated two-dimensional electromagnetic radiation field with the instantaneous dipole moment vector'
+        : 'Animated two-dimensional electromagnetic radiation field'}
     >
       Animated electromagnetic field simulation.
     </canvas>
@@ -1004,11 +1077,7 @@ function PowerPattern({ telemetry }: { telemetry: Telemetry }) {
         <path d={path} className="polar-fill" />
         <circle cx="70" cy="70" r="2.4" className="polar-source" />
       </svg>
-      <div className="power-readout">
-        <span>Relative power</span>
-        <strong>{telemetry.power < 0.005 ? '≈ 0' : telemetry.power.toExponential(2)}</strong>
-      </div>
-      <Latex display className="pattern-equation">{String.raw`\frac{dP}{d\Omega}\propto\frac{\left|\mathbf n\times\left[(\mathbf n-\boldsymbol\beta)\times\dot{\boldsymbol\beta}\right]\right|^2}{(1-\mathbf n\cdot\boldsymbol\beta)^5}`}</Latex>
+      <Latex display className="pattern-equation">{String.raw`\begin{aligned}\frac{\mathrm dP}{\mathrm d\Omega}&\propto\frac{\left\lVert\mathbf n\times\mathbf u\right\rVert^2}{\left(1-\mathbf n\cdot\boldsymbol\beta\right)^5},\\[3pt]\mathbf u&=\left(\mathbf n-\boldsymbol\beta\right)\times\dot{\boldsymbol\beta}\end{aligned}`}</Latex>
     </div>
   );
 }
@@ -1274,10 +1343,15 @@ export function RadiationSimulator() {
             <span className="formula-kicker">{selectedMode.label}</span>
             <Latex display>{selectedMode.formula}</Latex>
             <p>{selectedMode.description}</p>
+            {mode === 'dipole' && <div className="dipole-moment-key">
+              <span>Instantaneous dipole moment</span>
+              <Latex>{String.raw`\mathbf p(t)=-e\,y(t)\,\hat{\mathbf y}`}</Latex>
+              <small>The green arrow points from the electron toward the fixed positive charge.</small>
+            </div>}
           </div>
           <div className="parameter-section">
             <div className="section-title"><span>Parameters</span><strong>β = {parameters.beta.toFixed(2)}</strong></div>
-            <RangeControl label={mode === 'mouse' ? 'Maximum velocity' : 'Particle velocity'} value={parameters.beta} min={0.5} max={0.99} step={0.01} onChange={(value) => setParameter('beta', value)} />
+            <RangeControl label={mode === 'mouse' || mode === 'dipole' ? 'Maximum velocity' : 'Particle velocity'} value={parameters.beta} min={0.5} max={0.99} step={0.01} onChange={(value) => setParameter('beta', value)} />
             {mode === 'line' && <>
               <RangeControl label="Start position" value={parameters.lineStart} min={-1.2} max={-0.1} step={0.1} unit=" m" onChange={(value) => setParameter('lineStart', Math.min(value, parameters.lineStop - 0.1))} />
               <RangeControl label="Stop position" value={parameters.lineStop} min={0.1} max={1.2} step={0.1} unit=" m" onChange={(value) => setParameter('lineStop', Math.max(value, parameters.lineStart + 0.1))} />
@@ -1344,6 +1418,7 @@ export function RadiationSimulator() {
               <span><i className="legend-line trajectory" />Trajectory</span>
               <span><i className="legend-line wave" />Wavefront</span>
               <span><i className="legend-dot" />Electron</span>
+              {mode === 'dipole' && <span><i className="legend-line moment" />Dipole moment</span>}
             </div>
             <div className="view-actions">
               <Button variant={showZoom ? 'secondary' : 'ghost'} size="sm" onClick={() => setShowZoom((value) => !value)} aria-pressed={showZoom}><ScanSearch />Zoom</Button>
