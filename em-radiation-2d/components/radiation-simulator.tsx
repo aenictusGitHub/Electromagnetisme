@@ -98,6 +98,7 @@ type Parameters = {
 };
 type Layers = {
   fieldLines: boolean;
+  fieldArrows: boolean;
   wavefronts: boolean;
   nodes: boolean;
   trajectory: boolean;
@@ -801,6 +802,52 @@ function SimulationCanvas(properties: CanvasProps) {
         context.stroke();
       }
 
+      if (configuration.layers.fieldArrows) {
+        const arrowRowStride = Math.max(24, Math.floor(engine.rows.length / 5));
+        const arrowLineStride = lineModel.lines >= 48 ? 2 : 1;
+        context.save();
+        context.lineCap = 'round';
+        context.lineWidth = 1.35;
+        context.shadowColor = 'rgba(241, 203, 117, .45)';
+        context.shadowBlur = 4;
+        for (let line = 0; line < lineModel.lines; line += arrowLineStride) {
+          for (let rowIndex = arrowRowStride; rowIndex < engine.rows.length - 2; rowIndex += arrowRowStride) {
+            const point = worldToScreen(nodeAt(engine.rows[rowIndex], line));
+            const next = worldToScreen(nodeAt(engine.rows[rowIndex + 2], line));
+            if (point.x < -8 || point.x > width + 8 || point.y < -8 || point.y > height + 8) continue;
+            const dx = next.x - point.x;
+            const dy = next.y - point.y;
+            const magnitude = Math.hypot(dx, dy);
+            if (magnitude < 0.5) continue;
+            const unitX = dx / magnitude;
+            const unitY = dy / magnitude;
+            const normalX = -unitY;
+            const normalY = unitX;
+            const startX = point.x - unitX * 4.8;
+            const startY = point.y - unitY * 4.8;
+            const endX = point.x + unitX * 5.2;
+            const endY = point.y + unitY * 5.2;
+
+            context.strokeStyle = 'rgba(241, 203, 117, 0.78)';
+            context.beginPath();
+            context.moveTo(startX, startY);
+            context.lineTo(endX, endY);
+            context.moveTo(endX, endY);
+            context.lineTo(
+              endX - unitX * 3 + normalX * 2,
+              endY - unitY * 3 + normalY * 2,
+            );
+            context.moveTo(endX, endY);
+            context.lineTo(
+              endX - unitX * 3 - normalX * 2,
+              endY - unitY * 3 - normalY * 2,
+            );
+            context.stroke();
+          }
+        }
+        context.restore();
+      }
+
       const rowStride = Math.max(
         1,
         Math.round(14 / Math.max(1, C * sampling.emitInterval * pixelsPerUnit)),
@@ -1129,6 +1176,7 @@ export function RadiationSimulator() {
   const [waveSpeed, setWaveSpeed] = useState(1);
   const [layers, setLayers] = useState<Layers>({
     fieldLines: true,
+    fieldArrows: false,
     wavefronts: false,
     nodes: false,
     trajectory: true,
@@ -1237,6 +1285,7 @@ export function RadiationSimulator() {
                 playback: { type: 'string', enum: ['run', 'pause', 'step'] },
                 waveSpeed: { type: 'number', minimum: 0.25, maximum: 2 },
                 fieldLines: { type: 'boolean' },
+                fieldArrows: { type: 'boolean' },
                 wavefronts: { type: 'boolean' },
                 nodes: { type: 'boolean' },
               },
@@ -1261,7 +1310,7 @@ export function RadiationSimulator() {
                 setWaveSpeed(value.waveSpeed);
               }
               const nextLayers: Partial<Layers> = {};
-              for (const key of ['fieldLines', 'wavefronts', 'nodes'] as const) {
+              for (const key of ['fieldLines', 'fieldArrows', 'wavefronts', 'nodes'] as const) {
                 if (value[key] !== undefined) {
                   if (typeof value[key] !== 'boolean') throw new Error(`${key} must be boolean.`);
                   nextLayers[key] = value[key];
@@ -1400,6 +1449,7 @@ export function RadiationSimulator() {
           <details className="setup-details" open>
             <summary>Field plot</summary>
             <LayerToggle label="Electric field lines" checked={layers.fieldLines} onCheckedChange={(checked) => toggleLayer('fieldLines', checked)} />
+            <LayerToggle label="Electric field arrows · all space" checked={layers.fieldArrows} onCheckedChange={(checked) => toggleLayer('fieldArrows', checked)} />
             <LayerToggle label="Wavefronts" checked={layers.wavefronts} onCheckedChange={(checked) => toggleLayer('wavefronts', checked)} />
             <LayerToggle label="Node points" checked={layers.nodes} onCheckedChange={(checked) => toggleLayer('nodes', checked)} />
             <LayerToggle label="Trajectory" checked={layers.trajectory} onCheckedChange={(checked) => toggleLayer('trajectory', checked)} />

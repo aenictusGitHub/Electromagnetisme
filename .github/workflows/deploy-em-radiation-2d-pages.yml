@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'em-radiation-2d/**'
+      - 'quadrupolar-radiation-2d/**'
       - '.github/workflows/deploy-em-radiation-2d-pages.yml'
   workflow_dispatch:
 
@@ -21,9 +22,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: em-radiation-2d
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -41,18 +39,36 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-          cache-dependency-path: em-radiation-2d/pnpm-lock.yaml
+          cache-dependency-path: |
+            em-radiation-2d/pnpm-lock.yaml
+            quadrupolar-radiation-2d/pnpm-lock.yaml
 
-      - name: Install dependencies
+      - name: Install EM radiation 2D dependencies
+        working-directory: em-radiation-2d
         run: pnpm install --frozen-lockfile
 
-      - name: Build simulator
+      - name: Build EM radiation 2D
+        working-directory: em-radiation-2d
         run: pnpm build:pages
+
+      - name: Install quadrupolar radiation dependencies
+        working-directory: quadrupolar-radiation-2d
+        run: pnpm install --frozen-lockfile
+
+      - name: Build quadrupolar radiation 2D
+        working-directory: quadrupolar-radiation-2d
+        run: pnpm build:pages
+
+      - name: Assemble GitHub Pages
+        run: |
+          mkdir -p pages-artifact/quadrupolar-radiation-2d
+          cp -R em-radiation-2d/dist/pages/. pages-artifact/
+          cp -R quadrupolar-radiation-2d/dist/pages/. pages-artifact/quadrupolar-radiation-2d/
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: em-radiation-2d/dist/pages
+          path: pages-artifact
 
   deploy:
     environment:
